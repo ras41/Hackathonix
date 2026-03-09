@@ -1,4 +1,6 @@
-const rawBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// In production, API routes are at /api on the same domain
+// In development, you can set VITE_API_URL to point to a local backend
+const rawBaseUrl = import.meta.env.VITE_API_URL || "";
 
 export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, "");
 
