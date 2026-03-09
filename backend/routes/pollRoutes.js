@@ -1,5 +1,6 @@
 import express from "express";
 import {
+listPolls,
 createPoll,
 getPoll,
 getUserPolls,
@@ -11,6 +12,7 @@ import { requireAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
+router.get("/", listPolls);
 router.post("/", requireAuth, createPoll);
 router.get("/user/:userId", requireAuth, getUserPolls);
 router.get("/:id", getPoll);

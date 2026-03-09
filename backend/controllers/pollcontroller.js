@@ -1,5 +1,30 @@
 import Poll from "../models/poll.js";
 
+const isDbUnavailable = (error) =>
+  error?.name === "MongooseServerSelectionError" ||
+  error?.message?.includes("buffering timed out");
+
+export const listPolls = async (req, res) => {
+  try {
+    const { active } = req.query;
+    const filter = { isPublic: true };
+
+    if (active === "true" || active === "false") {
+      filter.isActive = active === "true";
+    }
+
+    const polls = await Poll.find(filter).sort({ createdAt: -1 }).limit(100);
+
+    res.json(polls);
+  } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const createPoll = async (req, res) => {
   try {
     const {
@@ -58,8 +83,11 @@ export const createPoll = async (req, res) => {
     });
 
     res.status(201).json(poll);
-
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
@@ -73,8 +101,11 @@ export const getPoll = async (req, res) => {
     }
 
     res.json(poll);
-
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
@@ -85,12 +116,16 @@ export const getUserPolls = async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const polls = await Poll.find({ userId: req.params.userId })
-      .sort({ createdAt: -1 });
+    const polls = await Poll.find({ userId: req.params.userId }).sort({
+      createdAt: -1
+    });
 
     res.json(polls);
-
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
@@ -113,8 +148,11 @@ export const closePoll = async (req, res) => {
     await poll.save();
 
     res.json({ message: "Poll closed", poll });
-
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
@@ -137,8 +175,11 @@ export const reopenPoll = async (req, res) => {
     await poll.save();
 
     res.json({ message: "Poll reopened", poll });
-
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
@@ -158,8 +199,11 @@ export const deletePoll = async (req, res) => {
     await poll.deleteOne();
 
     res.json({ message: "Poll deleted" });
-
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
