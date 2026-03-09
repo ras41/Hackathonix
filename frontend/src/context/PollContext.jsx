@@ -1,4 +1,6 @@
 import { createContext, useContext, useState } from "react";
+import { useAuth } from "./AuthContext";
+import { apiRequest } from "../utils/api";
 
 const PollContext = createContext();
 
@@ -12,148 +14,180 @@ export function usePoll() {
 
 export function PollProvider({ children }) {
   const [polls, setPolls] = useState([]);
+  const { token } = useAuth();
+
+  const requireToken = () => {
+    if (!token) {
+      throw new Error("Please log in to continue");
+    }
+    return token;
+  };
 
   // Create new poll
-  const createPoll = (pollData) => {
-    const newPoll = {
-      id: `poll-${Date.now()}`,
-      ...pollData,
-      createdAt: new Date().toISOString(),
-      votes: {},
-      totalVotes: 0,
-      isActive: true,
-      qrCode: null, // Will be generated
-    };
-
-    // Save to localStorage
-    const existingPolls = JSON.parse(
-      localStorage.getItem("geopulse_polls") || "[]",
-    );
-    const updatedPolls = [...existingPolls, newPoll];
-    localStorage.setItem("geopulse_polls", JSON.stringify(updatedPolls));
-
-    setPolls(updatedPolls);
-    return newPoll;
+  const createPoll = async (pollData) => {
+    try {
+      const newPoll = await apiRequest("/api/polls", {
+        method: "POST",
+        token: requireToken(),
+        body: pollData,
+      });
+      setPolls((prev) => [newPoll, ...prev]);
+      return newPoll;
+    } catch (error) {
+      console.error("Error creating poll:", error);
+      throw error;
+    }
   };
 
   // Get poll by ID
-  const getPoll = (pollId) => {
-    const existingPolls = JSON.parse(
-      localStorage.getItem("geopulse_polls") || "[]",
-    );
-    return existingPolls.find((poll) => poll.id === pollId);
+  const getPoll = async (pollId) => {
+    try {
+      return await apiRequest(`/api/polls/${pollId}`);
+    } catch (error) {
+      console.error("Error fetching poll:", error);
+      throw error;
+    }
   };
 
   // Get all polls for a user
-  const getUserPolls = (userId) => {
-    const existingPolls = JSON.parse(
-      localStorage.getItem("geopulse_polls") || "[]",
-    );
-    return existingPolls.filter((poll) => poll.createdBy === userId);
+  const getUserPolls = async (userId) => {
+    try {
+      const userPolls = await apiRequest(`/api/polls/user/${userId}`, {
+        token: requireToken(),
+      });
+      setPolls(userPolls);
+      return userPolls;
+    } catch (error) {
+      console.error("Error fetching user polls:", error);
+      throw error;
+    }
   };
 
   // Submit vote
-  const submitVote = (pollId, optionId, location = null) => {
-    const existingPolls = JSON.parse(
-      localStorage.getItem("geopulse_polls") || "[]",
-    );
-    const pollIndex = existingPolls.findIndex((poll) => poll.id === pollId);
-
-    if (pollIndex === -1) {
-      throw new Error("Poll not found");
+  const submitVote = async (pollId, option, latitude = null, longitude = null) => {
+    try {
+      const vote = await apiRequest("/api/votes", {
+        method: "POST",
+        body: { pollId, option, latitude, longitude },
+      });
+      return vote;
+    } catch (error) {
+      console.error("Error submitting vote:", error);
+      throw error;
     }
+  };
 
-    const poll = existingPolls[pollIndex];
-
-    // Check if already voted (simple check by IP or session)
-    const sessionKey = `voted_${pollId}`;
-    if (localStorage.getItem(sessionKey)) {
-      throw new Error("You have already voted in this poll");
+  // Get votes for a poll
+  const getVotes = async (pollId) => {
+    try {
+      return await apiRequest(`/api/votes/${pollId}`);
+    } catch (error) {
+      console.error("Error fetching votes:", error);
+      throw error;
     }
-
-    // Add vote
-    const voteId = `vote-${Date.now()}`;
-    const newVote = {
-      id: voteId,
-      optionId,
-      location,
-      timestamp: new Date().toISOString(),
-    };
-
-    if (!poll.votes[optionId]) {
-      poll.votes[optionId] = [];
-    }
-    poll.votes[optionId].push(newVote);
-    poll.totalVotes += 1;
-
-    // Save updated polls
-    existingPolls[pollIndex] = poll;
-    localStorage.setItem("geopulse_polls", JSON.stringify(existingPolls));
-
-    // Mark as voted
-    localStorage.setItem(sessionKey, "true");
-
-    setPolls(existingPolls);
-    return poll;
   };
 
   // Get vote results
-  const getResults = (pollId) => {
-    const poll = getPoll(pollId);
-    if (!poll) return null;
+  const getResults = async (pollId) => {
+    try {
+      const poll = await getPoll(pollId);
+      const votes = await getVotes(pollId);
 
-    const results = poll.options.map((option) => ({
-      id: option.id,
-      text: option.text,
-      votes: poll.votes[option.id]?.length || 0,
-      percentage:
-        poll.totalVotes > 0
-          ? Math.round(
-              ((poll.votes[option.id]?.length || 0) / poll.totalVotes) * 100,
-            )
-          : 0,
-      locations:
-        poll.votes[option.id]?.map((vote) => vote.location).filter(Boolean) ||
-        [],
-    }));
+      const voteCounts = {};
+      votes.forEach((vote) => {
+        voteCounts[vote.option] = (voteCounts[vote.option] || 0) + 1;
+      });
 
-    return {
-      poll,
-      results,
-      totalVotes: poll.totalVotes,
-    };
-  };
+      const results = poll.options.map((option) => ({
+        id: option.toString(),
+        option,
+        votes: voteCounts[option] || 0,
+        percentage:
+          votes.length > 0
+            ? Math.round(((voteCounts[option] || 0) / votes.length) * 100)
+            : 0,
+        locations: votes
+          .filter(
+            (vote) =>
+              vote.option === option &&
+              Number.isFinite(vote.latitude) &&
+              Number.isFinite(vote.longitude),
+          )
+          .map((vote) => ({ lat: vote.latitude, lng: vote.longitude })),
+      }));
 
-  // Delete poll
-  const deletePoll = (pollId, userId) => {
-    const existingPolls = JSON.parse(
-      localStorage.getItem("geopulse_polls") || "[]",
-    );
-    const updatedPolls = existingPolls.filter(
-      (poll) => poll.id !== pollId || poll.createdBy === userId,
-    );
-    localStorage.setItem("geopulse_polls", JSON.stringify(updatedPolls));
-    setPolls(updatedPolls);
-  };
-
-  // Update poll
-  const updatePoll = (pollId, updates, userId) => {
-    const existingPolls = JSON.parse(
-      localStorage.getItem("geopulse_polls") || "[]",
-    );
-    const pollIndex = existingPolls.findIndex(
-      (poll) => poll.id === pollId && poll.createdBy === userId,
-    );
-
-    if (pollIndex === -1) {
-      throw new Error("Poll not found or unauthorized");
+      return {
+        poll,
+        results,
+        totalVotes: votes.length,
+        votes,
+      };
+    } catch (error) {
+      console.error("Error getting results:", error);
+      throw error;
     }
+  };
 
-    existingPolls[pollIndex] = { ...existingPolls[pollIndex], ...updates };
-    localStorage.setItem("geopulse_polls", JSON.stringify(existingPolls));
-    setPolls(existingPolls);
+  const getAllVotesForUser = async (userId) => {
+    try {
+      return await apiRequest(`/api/votes/user/${userId}`, {
+        token: requireToken(),
+      });
+    } catch (error) {
+      console.error("Error fetching user votes:", error);
+      throw error;
+    }
+  };
 
-    return existingPolls[pollIndex];
+  const deletePoll = async (pollId) => {
+    try {
+      await apiRequest(`/api/polls/${pollId}`, {
+        method: "DELETE",
+        token: requireToken(),
+      });
+      setPolls((prev) => prev.filter((poll) => poll._id !== pollId));
+    } catch (error) {
+      console.error("Error deleting poll:", error);
+      throw error;
+    }
+  };
+
+  // Close poll
+  const closePoll = async (pollId) => {
+    try {
+      const response = await apiRequest(`/api/polls/${pollId}/close`, {
+        method: "PATCH",
+        token: requireToken(),
+      });
+      if (response?.poll) {
+        setPolls((prev) =>
+          prev.map((poll) => (poll._id === pollId ? response.poll : poll)),
+        );
+      }
+      return response;
+    } catch (error) {
+      console.error("Error closing poll:", error);
+      throw error;
+    }
+  };
+
+  // Reopen poll
+  const reopenPoll = async (pollId) => {
+    try {
+      const response = await apiRequest(`/api/polls/${pollId}/reopen`, {
+        method: "PATCH",
+        token: requireToken(),
+      });
+      if (response?.poll) {
+        setPolls((prev) =>
+          prev.map((poll) => (poll._id === pollId ? response.poll : poll)),
+        );
+      }
+      return response;
+    } catch (error) {
+      console.error("Error reopening poll:", error);
+      throw error;
+    }
   };
 
   const value = {
@@ -162,9 +196,12 @@ export function PollProvider({ children }) {
     getPoll,
     getUserPolls,
     submitVote,
+    getVotes,
     getResults,
+    getAllVotesForUser,
     deletePoll,
-    updatePoll,
+    closePoll,
+    reopenPoll,
   };
 
   return <PollContext.Provider value={value}>{children}</PollContext.Provider>;

@@ -100,10 +100,10 @@ export default function LandingPage() {
                 {isAuthenticated ? "Create Poll" : "Get Started"}
               </button>
               <button
-                onClick={() => navigate("/vote/poll-1")}
+                onClick={() => navigate(isAuthenticated ? "/dashboard" : "/login")}
                 className="text-purple-600 px-8 py-4 rounded-full font-semibold text-lg hover:bg-purple-50 transition-all"
               >
-                Try Demo
+                Explore
               </button>
             </div>
           </div>
@@ -206,7 +206,7 @@ export default function LandingPage() {
               insights today.
             </p>
             <button
-              onClick={() => navigate("/create")}
+              onClick={() => navigate(isAuthenticated ? "/create" : "/register")}
               className="bg-white text-purple-600 px-8 py-4 rounded-full font-semibold text-lg hover:bg-gray-100 transition-all inline-block"
             >
               Get Started Now

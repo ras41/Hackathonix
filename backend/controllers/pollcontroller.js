@@ -2,15 +2,62 @@ import Poll from "../models/poll.js";
 
 export const createPoll = async (req, res) => {
   try {
-    const { question, options, userId } = req.body;
+    const {
+      question,
+      description = "",
+      options = [],
+      userId,
+      durationDays,
+      allowMultipleVotes = false,
+      requireLocation = true,
+      isPublic = true
+    } = req.body;
+
+    const trimmedQuestion = question?.trim();
+    const normalizedOptions = options
+      .filter((option) => typeof option === "string")
+      .map((option) => option.trim())
+      .filter(Boolean);
+
+    if (!trimmedQuestion) {
+      return res.status(400).json({ message: "Question is required" });
+    }
+
+    if (normalizedOptions.length < 2) {
+      return res
+        .status(400)
+        .json({ message: "At least 2 valid options are required" });
+    }
+
+    const ownerId = req.userId || userId;
+
+    if (!ownerId) {
+      return res.status(400).json({ message: "User id is required" });
+    }
+
+    const parsedDuration = Number(durationDays);
+    const safeDuration =
+      Number.isFinite(parsedDuration) && parsedDuration >= 1
+        ? Math.min(Math.floor(parsedDuration), 30)
+        : null;
+
+    const expiresAt = safeDuration
+      ? new Date(Date.now() + safeDuration * 24 * 60 * 60 * 1000)
+      : null;
 
     const poll = await Poll.create({
-      question,
-      options,
-      userId
+      question: trimmedQuestion,
+      description: description?.trim() || "",
+      options: normalizedOptions,
+      userId: ownerId,
+      durationDays: safeDuration,
+      allowMultipleVotes: Boolean(allowMultipleVotes),
+      requireLocation: Boolean(requireLocation),
+      isPublic: Boolean(isPublic),
+      expiresAt
     });
 
-    res.json(poll);
+    res.status(201).json(poll);
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -34,6 +81,10 @@ export const getPoll = async (req, res) => {
 
 export const getUserPolls = async (req, res) => {
   try {
+    if (req.userId !== req.params.userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
     const polls = await Poll.find({ userId: req.params.userId })
       .sort({ createdAt: -1 });
 
@@ -46,13 +97,22 @@ export const getUserPolls = async (req, res) => {
 
 export const closePoll = async (req, res) => {
   try {
+    const poll = await Poll.findById(req.params.id);
 
-    await Poll.findByIdAndUpdate(req.params.id, {
-      isActive: false,
-      closedAt: new Date()
-    });
+    if (!poll) {
+      return res.status(404).json({ message: "Poll not found" });
+    }
 
-    res.json({ message: "Poll closed" });
+    if (poll.userId !== req.userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    poll.isActive = false;
+    poll.closedAt = new Date();
+
+    await poll.save();
+
+    res.json({ message: "Poll closed", poll });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -61,13 +121,22 @@ export const closePoll = async (req, res) => {
 
 export const reopenPoll = async (req, res) => {
   try {
+    const poll = await Poll.findById(req.params.id);
 
-    await Poll.findByIdAndUpdate(req.params.id, {
-      isActive: true,
-      closedAt: null
-    });
+    if (!poll) {
+      return res.status(404).json({ message: "Poll not found" });
+    }
 
-    res.json({ message: "Poll reopened" });
+    if (poll.userId !== req.userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    poll.isActive = true;
+    poll.closedAt = null;
+
+    await poll.save();
+
+    res.json({ message: "Poll reopened", poll });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -76,8 +145,17 @@ export const reopenPoll = async (req, res) => {
 
 export const deletePoll = async (req, res) => {
   try {
+    const poll = await Poll.findById(req.params.id);
 
-    await Poll.findByIdAndDelete(req.params.id);
+    if (!poll) {
+      return res.status(404).json({ message: "Poll not found" });
+    }
+
+    if (poll.userId !== req.userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    await poll.deleteOne();
 
     res.json({ message: "Poll deleted" });
 

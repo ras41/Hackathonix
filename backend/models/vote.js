@@ -15,12 +15,12 @@ const voteSchema = new mongoose.Schema(
 
   latitude: {
     type: Number,
-    required: true
+    default: null
   },
 
   longitude: {
     type: Number,
-    required: true
+    default: null
   }
 },
 { timestamps: { createdAt: "timestamp", updatedAt: false } }

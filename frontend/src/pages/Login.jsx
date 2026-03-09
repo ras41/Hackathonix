@@ -157,14 +157,9 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Demo Credentials */}
-        <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
-          <p className="text-blue-800 text-sm font-medium mb-2">
-            Demo Credentials:
-          </p>
-          <p className="text-blue-600 text-sm">Email: demo@geopulse.com</p>
-          <p className="text-blue-600 text-sm">Password: demo123</p>
-        </div>
+        <p className="mt-6 text-center text-sm text-gray-500">
+          New here? Create an account to start publishing polls.
+        </p>
       </div>
     </div>
   );
