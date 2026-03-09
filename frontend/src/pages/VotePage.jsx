@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Bell,
@@ -8,21 +8,120 @@ import {
   Settings,
   Sparkles,
 } from "lucide-react";
+import { usePoll } from "../context/PollContext";
+
+const getCurrentLocation = () =>
+  new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        }),
+      () => resolve(null),
+      {
+        timeout: 8000,
+      },
+    );
+  });
 
 export default function VotePage() {
   const { pollId } = useParams();
   const navigate = useNavigate();
-  const [selectedOption, setSelectedOption] = useState("");
+  const { getPoll, submitVote } = usePoll();
 
-  const handleVote = () => {
-    if (selectedOption) {
+  const [poll, setPoll] = useState(null);
+  const [selectedOption, setSelectedOption] = useState("");
+  const [loadingPoll, setLoadingPoll] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const loadPoll = async () => {
+      setLoadingPoll(true);
+      setError("");
+
+      try {
+        const pollData = await getPoll(pollId);
+        setPoll(pollData);
+      } catch (loadError) {
+        setError(loadError.message || "Failed to load poll");
+      } finally {
+        setLoadingPoll(false);
+      }
+    };
+
+    loadPoll();
+  }, [pollId]);
+
+  const handleVote = async () => {
+    if (!selectedOption || !poll) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      const location = await getCurrentLocation();
+
+      if (poll.requireLocation && !location) {
+        throw new Error(
+          "Location access is required for this poll. Please allow location and try again.",
+        );
+      }
+
+      await submitVote(
+        poll._id,
+        selectedOption,
+        location?.latitude ?? null,
+        location?.longitude ?? null,
+      );
+
       navigate(`/results/${pollId}`);
+    } catch (voteError) {
+      setError(voteError.message || "Failed to submit vote");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  if (loadingPoll) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-600">Loading poll...</p>
+      </div>
+    );
+  }
+
+  if (!poll) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 max-w-lg w-full text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-3">
+            Poll not found
+          </h1>
+          <p className="text-gray-600 mb-6">
+            The poll link is invalid or the poll has been removed.
+          </p>
+          <button
+            onClick={() => navigate("/")}
+            className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            Go Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -44,7 +143,6 @@ export default function VotePage() {
         </div>
       </header>
 
-      {/* Left Sidebar */}
       <div className="fixed left-0 top-20 h-full w-16 bg-white border-r border-gray-200 flex flex-col items-center py-6 space-y-6">
         <button className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center">
           <Home className="w-5 h-5 text-white" />
@@ -60,161 +158,71 @@ export default function VotePage() {
         </button>
       </div>
 
-      {/* Main Content */}
       <div className="ml-16 px-6 py-12">
         <div className="max-w-4xl mx-auto">
-          {/* Poll Header */}
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center space-x-2 bg-purple-100 text-purple-600 px-4 py-2 rounded-full text-sm font-medium mb-8">
-              📊 <span>LIVE COMMUNITY POLL</span>
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center space-x-2 bg-purple-100 text-purple-600 px-4 py-2 rounded-full text-sm font-medium mb-6">
+              <span>LIVE COMMUNITY POLL</span>
             </div>
-            <h1 className="text-5xl font-bold text-gray-900 leading-tight mb-8">
-              Which frontend framework do you prefer for large-scale
-              applications?
+            <h1 className="text-4xl md:text-5xl font-bold text-gray-900 leading-tight mb-6">
+              {poll.question}
             </h1>
-            <p className="text-xl text-gray-600 mb-4">
-              Select an option below to contribute to the global GeoPulse pulse.
-            </p>
-            <p className="text-gray-500">
-              Poll closing in 2 days. 4,219 developers have voted so far.
-            </p>
+            {poll.description && (
+              <p className="text-lg text-gray-600 mb-3">{poll.description}</p>
+            )}
+            {!poll.isActive && (
+              <p className="text-red-600 font-medium">
+                This poll is closed and no longer accepts votes.
+              </p>
+            )}
           </div>
 
-          {/* Voting Options */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-            {/* React */}
-            <button
-              onClick={() => setSelectedOption("React")}
-              className={`group relative p-8 rounded-3xl border-2 transition-all hover:scale-105 ${
-                selectedOption === "React"
-                  ? "border-blue-300 bg-blue-50"
-                  : "border-gray-200 bg-white hover:border-gray-300"
-              }`}
-            >
-              <div className="flex flex-col items-center text-center">
-                <div className="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mb-6">
-                  <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold">⚛</span>
-                  </div>
-                </div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">React</h3>
-                <div
-                  className={`w-6 h-6 rounded-full border-2 absolute top-6 right-6 ${
-                    selectedOption === "React"
-                      ? "border-blue-500 bg-blue-500"
-                      : "border-gray-300"
-                  }`}
-                >
-                  {selectedOption === "React" && (
-                    <div className="w-2 h-2 bg-white rounded-full absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
-                  )}
-                </div>
-              </div>
-            </button>
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
 
-            {/* Vue */}
-            <button
-              onClick={() => setSelectedOption("Vue")}
-              className={`group relative p-8 rounded-3xl border-2 transition-all hover:scale-105 ${
-                selectedOption === "Vue"
-                  ? "border-green-300 bg-green-50"
-                  : "border-gray-200 bg-white hover:border-gray-300"
-              }`}
-            >
-              <div className="flex flex-col items-center text-center">
-                <div className="w-20 h-20 bg-green-100 rounded-2xl flex items-center justify-center mb-6">
-                  <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold">V</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+            {poll.options.map((option) => (
+              <button
+                key={option}
+                onClick={() => setSelectedOption(option)}
+                disabled={!poll.isActive}
+                className={`p-6 rounded-2xl border-2 transition-all text-left ${
+                  selectedOption === option
+                    ? "border-purple-400 bg-purple-50"
+                    : "border-gray-200 bg-white hover:border-gray-300"
+                } ${!poll.isActive ? "opacity-70 cursor-not-allowed" : ""}`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-xl font-semibold text-gray-900">
+                    {option}
+                  </span>
+                  <div
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                      selectedOption === option
+                        ? "border-purple-600 bg-purple-600"
+                        : "border-gray-300"
+                    }`}
+                  >
+                    {selectedOption === option && (
+                      <div className="w-2 h-2 bg-white rounded-full" />
+                    )}
                   </div>
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">Vue</h3>
-                <div
-                  className={`w-6 h-6 rounded-full border-2 absolute top-6 right-6 ${
-                    selectedOption === "Vue"
-                      ? "border-green-500 bg-green-500"
-                      : "border-gray-300"
-                  }`}
-                >
-                  {selectedOption === "Vue" && (
-                    <div className="w-2 h-2 bg-white rounded-full absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
-                  )}
-                </div>
-              </div>
-            </button>
-
-            {/* Angular */}
-            <button
-              onClick={() => setSelectedOption("Angular")}
-              className={`group relative p-8 rounded-3xl border-2 transition-all hover:scale-105 ${
-                selectedOption === "Angular"
-                  ? "border-red-300 bg-red-50"
-                  : "border-gray-200 bg-white hover:border-gray-300"
-              }`}
-            >
-              <div className="flex flex-col items-center text-center">
-                <div className="w-20 h-20 bg-red-100 rounded-2xl flex items-center justify-center mb-6">
-                  <div className="w-12 h-12 bg-red-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold">A</span>
-                  </div>
-                </div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">
-                  Angular
-                </h3>
-                <div
-                  className={`w-6 h-6 rounded-full border-2 absolute top-6 right-6 ${
-                    selectedOption === "Angular"
-                      ? "border-red-500 bg-red-500"
-                      : "border-gray-300"
-                  }`}
-                >
-                  {selectedOption === "Angular" && (
-                    <div className="w-2 h-2 bg-white rounded-full absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
-                  )}
-                </div>
-              </div>
-            </button>
-
-            {/* Svelte */}
-            <button
-              onClick={() => setSelectedOption("Svelte")}
-              className={`group relative p-8 rounded-3xl border-2 transition-all hover:scale-105 ${
-                selectedOption === "Svelte"
-                  ? "border-orange-300 bg-orange-50"
-                  : "border-gray-200 bg-white hover:border-gray-300"
-              }`}
-            >
-              <div className="flex flex-col items-center text-center">
-                <div className="w-20 h-20 bg-orange-100 rounded-2xl flex items-center justify-center mb-6">
-                  <div className="w-12 h-12 bg-orange-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold">⚡</span>
-                  </div>
-                </div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">
-                  Svelte
-                </h3>
-                <div
-                  className={`w-6 h-6 rounded-full border-2 absolute top-6 right-6 ${
-                    selectedOption === "Svelte"
-                      ? "border-orange-500 bg-orange-500"
-                      : "border-gray-300"
-                  }`}
-                >
-                  {selectedOption === "Svelte" && (
-                    <div className="w-2 h-2 bg-white rounded-full absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
-                  )}
-                </div>
-              </div>
-            </button>
+              </button>
+            ))}
           </div>
 
-          {/* Submit Button */}
-          {selectedOption && (
+          {poll.isActive && (
             <div className="text-center">
               <button
                 onClick={handleVote}
-                className="bg-purple-600 text-white px-12 py-4 rounded-full font-semibold text-lg hover:bg-purple-700 transition-all"
+                disabled={!selectedOption || isSubmitting}
+                className="bg-purple-600 text-white px-12 py-4 rounded-full font-semibold text-lg hover:bg-purple-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Submit Vote
+                {isSubmitting ? "Submitting..." : "Submit Vote"}
               </button>
             </div>
           )}

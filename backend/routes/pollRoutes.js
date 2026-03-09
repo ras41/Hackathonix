@@ -7,14 +7,15 @@ closePoll,
 reopenPoll,
 deletePoll
 } from "../controllers/pollcontroller.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.post("/", createPoll);
+router.post("/", requireAuth, createPoll);
+router.get("/user/:userId", requireAuth, getUserPolls);
 router.get("/:id", getPoll);
-router.get("/user/:userId", getUserPolls);
-router.patch("/:id/close", closePoll);
-router.patch("/:id/reopen", reopenPoll);
-router.delete("/:id", deletePoll);
+router.patch("/:id/close", requireAuth, closePoll);
+router.patch("/:id/reopen", requireAuth, reopenPoll);
+router.delete("/:id", requireAuth, deletePoll);
 
 export default router;

@@ -6,6 +6,7 @@ import { Server } from "socket.io";
 
 import connectDB from "./config/db.js";
 
+import authRoutes from "./routes/authRoutes.js";
 import pollRoutes from "./routes/pollRoutes.js";
 import voteRoutes from "./routes/voteRoutes.js";
 
@@ -36,6 +37,7 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use("/api/auth", authRoutes);
 app.use("/api/polls", pollRoutes);
 app.use("/api/votes", voteRoutes);
 

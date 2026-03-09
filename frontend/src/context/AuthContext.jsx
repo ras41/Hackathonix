@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import { apiRequest } from "../utils/api";
 
 const AuthContext = createContext();
+const AUTH_STORAGE_KEY = "geopulse_auth";
 
 export function useAuth() {
   const context = useContext(AuthContext);
@@ -12,37 +14,66 @@ export function useAuth() {
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is logged in on app start
+  const persistAuth = (nextToken, nextUser) => {
+    setToken(nextToken);
+    setUser(nextUser);
+    localStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify({ token: nextToken, user: nextUser }),
+    );
+  };
+
+  const clearAuth = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem("geopulse_user");
+    localStorage.removeItem("geopulse_users");
+  };
+
+  // Restore session from local storage and validate token.
   useEffect(() => {
-    const savedUser = localStorage.getItem("geopulse_user");
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setLoading(false);
+    const restoreSession = async () => {
+      try {
+        const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+
+        if (!savedAuth) {
+          return;
+        }
+
+        const parsedAuth = JSON.parse(savedAuth);
+        if (!parsedAuth?.token) {
+          clearAuth();
+          return;
+        }
+
+        const response = await apiRequest("/api/auth/me", {
+          token: parsedAuth.token,
+        });
+
+        persistAuth(parsedAuth.token, response.user);
+      } catch {
+        clearAuth();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    restoreSession();
   }, []);
 
   // Login function
   const login = async (email, password) => {
     try {
-      // Simulate API call - In real app, this would be actual API
-      const users = JSON.parse(localStorage.getItem("geopulse_users") || "[]");
-      const user = users.find(
-        (u) => u.email === email && u.password === password,
-      );
+      const response = await apiRequest("/api/auth/login", {
+        method: "POST",
+        body: { email, password },
+      });
 
-      if (!user) {
-        throw new Error("Invalid email or password");
-      }
-
-      // Remove password from user object before storing
-      const { password: _, ...userWithoutPassword } = user;
-      setUser(userWithoutPassword);
-      localStorage.setItem(
-        "geopulse_user",
-        JSON.stringify(userWithoutPassword),
-      );
+      persistAuth(response.token, response.user);
 
       return { success: true };
     } catch (error) {
@@ -53,33 +84,12 @@ export function AuthProvider({ children }) {
   // Register function
   const register = async (userData) => {
     try {
-      // Simulate API call
-      const users = JSON.parse(localStorage.getItem("geopulse_users") || "[]");
+      const response = await apiRequest("/api/auth/register", {
+        method: "POST",
+        body: userData,
+      });
 
-      // Check if email already exists
-      if (users.find((u) => u.email === userData.email)) {
-        throw new Error("Email already registered");
-      }
-
-      // Create new user
-      const newUser = {
-        id: Date.now().toString(),
-        ...userData,
-        createdAt: new Date().toISOString(),
-        polls: [],
-      };
-
-      // Save to "database" (localStorage)
-      users.push(newUser);
-      localStorage.setItem("geopulse_users", JSON.stringify(users));
-
-      // Auto-login after registration
-      const { password: _, ...userWithoutPassword } = newUser;
-      setUser(userWithoutPassword);
-      localStorage.setItem(
-        "geopulse_user",
-        JSON.stringify(userWithoutPassword),
-      );
+      persistAuth(response.token, response.user);
 
       return { success: true };
     } catch (error) {
@@ -89,32 +99,27 @@ export function AuthProvider({ children }) {
 
   // Logout function
   const logout = () => {
-    setUser(null);
-    localStorage.removeItem("geopulse_user");
+    clearAuth();
   };
 
   // Update user profile
   const updateUser = (updatedData) => {
-    const updatedUser = { ...user, ...updatedData };
-    setUser(updatedUser);
-    localStorage.setItem("geopulse_user", JSON.stringify(updatedUser));
-
-    // Also update in users array
-    const users = JSON.parse(localStorage.getItem("geopulse_users") || "[]");
-    const userIndex = users.findIndex((u) => u.id === user.id);
-    if (userIndex !== -1) {
-      users[userIndex] = { ...users[userIndex], ...updatedData };
-      localStorage.setItem("geopulse_users", JSON.stringify(users));
+    if (!user || !token) {
+      return;
     }
+
+    const updatedUser = { ...user, ...updatedData };
+    persistAuth(token, updatedUser);
   };
 
   const value = {
     user,
+    token,
     login,
     register,
     logout,
     updateUser,
-    isAuthenticated: !!user,
+    isAuthenticated: Boolean(user && token),
     loading,
   };
 

@@ -7,8 +7,20 @@ import { Modal } from "../components/ui/Modal";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
-import { Bell, User, Home, MessageSquare, Settings, Sparkles, Plus, X, Share2, Copy, QrCode, Trash2, ArrowLeft, Clock, Globe } from "lucide-react";
-import QRCodeReact from "qrcode.react";
+import {
+  Bell,
+  User,
+  Home,
+  MessageSquare,
+  Settings,
+  Sparkles,
+  Plus,
+  Copy,
+  Trash2,
+  ArrowLeft,
+  Clock,
+} from "lucide-react";
+import { QRCodeSVG as QRCodeReact } from "qrcode.react";
 
 export default function CreatePoll() {
   const navigate = useNavigate();
@@ -92,24 +104,17 @@ export default function CreatePoll() {
     
     try {
       const pollData = {
-        title: formData.title.trim(),
+        question: formData.title.trim(),
         description: formData.description.trim(),
-        options: formData.options
-          .filter(opt => opt.trim())
-          .map((opt, index) => ({
-            id: `option-${index + 1}`,
-            text: opt.trim()
-          })),
-        createdBy: user.id,
-        creatorName: user.name,
-        duration: formData.duration,
+        options: formData.options.filter(opt => opt.trim()),
+        userId: user.id,
+        durationDays: formData.duration,
         allowMultipleVotes: formData.allowMultipleVotes,
         requireLocation: formData.requireLocation,
         isPublic: formData.isPublic,
-        expiresAt: new Date(Date.now() + formData.duration * 24 * 60 * 60 * 1000).toISOString()
       };
       
-      const newPoll = createPoll(pollData);
+      const newPoll = await createPoll(pollData);
       setCreatedPoll(newPoll);
       setShowSuccessModal(true);
       addToast("Poll created successfully!", "success");
@@ -122,12 +127,12 @@ export default function CreatePoll() {
   };
 
   const copyPollUrl = () => {
-    const url = `${window.location.origin}/vote/${createdPoll?.id}`;
+    const url = `${window.location.origin}/vote/${createdPoll?._id}`;
     navigator.clipboard.writeText(url);
     addToast("Poll URL copied to clipboard!", "success");
   };
 
-  const pollUrl = createdPoll ? `${window.location.origin}/vote/${createdPoll.id}` : "";
+  const pollUrl = createdPoll ? `${window.location.origin}/vote/${createdPoll._id}` : "";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -355,7 +360,7 @@ export default function CreatePoll() {
         <div className="space-y-6">
           <div className="text-center">
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              {createdPoll?.title}
+              {createdPoll?.question}
             </h3>
             <p className="text-gray-600 mb-6">
               Your poll is now live and ready for votes!
@@ -395,14 +400,14 @@ export default function CreatePoll() {
             
             <div className="flex space-x-3">
               <Button
-                onClick={() => navigate(`/results/${createdPoll?.id}`)}
+                onClick={() => navigate(`/results/${createdPoll?._id}`)}
                 variant="outline"
                 className="flex-1"
               >
                 View Results
               </Button>
               <Button
-                onClick={() => navigate(`/vote/${createdPoll?.id}`)}
+                onClick={() => navigate(`/vote/${createdPoll?._id}`)}
                 className="flex-1"
               >
                 Test Vote

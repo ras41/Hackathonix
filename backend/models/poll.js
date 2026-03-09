@@ -27,6 +27,11 @@ const pollSchema = new mongoose.Schema(
     required: true
   },
 
+  description: {
+    type: String,
+    default: ""
+  },
+
   options: {
     type: [String],
     required: true
@@ -40,6 +45,31 @@ const pollSchema = new mongoose.Schema(
   isActive: {
     type: Boolean,
     default: true
+  },
+
+  durationDays: {
+    type: Number,
+    default: null
+  },
+
+  allowMultipleVotes: {
+    type: Boolean,
+    default: false
+  },
+
+  requireLocation: {
+    type: Boolean,
+    default: true
+  },
+
+  isPublic: {
+    type: Boolean,
+    default: true
+  },
+
+  expiresAt: {
+    type: Date,
+    default: null
   },
 
   closedAt: {
