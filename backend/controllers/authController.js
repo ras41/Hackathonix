@@ -3,6 +3,9 @@ import User from "../models/user.js";
 
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const getJwtSecret = () => process.env.JWT_SECRET || "change-me-in-production";
+const isDbUnavailable = (error) =>
+  error?.name === "MongooseServerSelectionError" ||
+  error?.message?.includes("buffering timed out");
 
 const issueToken = (userId) =>
   jwt.sign({ sub: userId }, getJwtSecret(), { expiresIn: JWT_EXPIRES_IN });
@@ -51,6 +54,10 @@ export const register = async (req, res) => {
       user: user.toSafeObject()
     });
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     if (error.code === 11000) {
       return res.status(409).json({ message: "Email already registered" });
     }
@@ -91,6 +98,10 @@ export const login = async (req, res) => {
       user: user.toSafeObject()
     });
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     return res.status(500).json({ message: "Failed to login" });
   }
 };

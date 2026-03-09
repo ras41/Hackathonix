@@ -1,11 +1,16 @@
 import Vote from "../models/vote.js";
 import Poll from "../models/poll.js";
 
+const isDbUnavailable = (error) =>
+  error?.name === "MongooseServerSelectionError" ||
+  error?.message?.includes("buffering timed out");
+
 export const addVote = async (req, res) => {
   try {
     const { pollId, option, latitude, longitude } = req.body;
+    const normalizedOption = option?.trim();
 
-    if (!pollId || !option?.trim()) {
+    if (!pollId || !normalizedOption) {
       return res.status(400).json({ message: "Poll id and option are required" });
     }
 
@@ -19,7 +24,7 @@ export const addVote = async (req, res) => {
       return res.status(400).json({ message: "Poll closed" });
     }
 
-    if (!poll.options.includes(option)) {
+    if (!poll.options.includes(normalizedOption)) {
       return res.status(400).json({ message: "Invalid option selected" });
     }
 
@@ -34,7 +39,7 @@ export const addVote = async (req, res) => {
 
     const vote = await Vote.create({
       pollId,
-      option,
+      option: normalizedOption,
       latitude: hasCoordinates ? parsedLatitude : null,
       longitude: hasCoordinates ? parsedLongitude : null
     });
@@ -43,17 +48,26 @@ export const addVote = async (req, res) => {
 
     res.status(201).json(vote);
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
 
 export const getVotes = async (req, res) => {
   try {
-    const votes = await Vote.find({ pollId: req.params.pollId })
-      .sort({ timestamp: 1 });
+    const votes = await Vote.find({ pollId: req.params.pollId }).sort({
+      timestamp: 1
+    });
 
     res.json(votes);
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
@@ -65,13 +79,16 @@ export const getAllVotesForUser = async (req, res) => {
     }
 
     const polls = await Poll.find({ userId: req.params.userId });
-
     const pollIds = polls.map((poll) => poll._id);
 
     const votes = await Vote.find({ pollId: { $in: pollIds } });
 
     res.json(votes);
   } catch (error) {
+    if (isDbUnavailable(error)) {
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+
     res.status(500).json({ error: error.message });
   }
 };
