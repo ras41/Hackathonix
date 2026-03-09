@@ -60,6 +60,8 @@ export const register = async (req, res) => {
       user: user.toSafeObject()
     });
   } catch (error) {
+    console.error("Register error:", error);
+
     if (error.message === "JWT_SECRET is not set") {
       return res.status(500).json({ message: "Server configuration error" });
     }
@@ -108,6 +110,8 @@ export const login = async (req, res) => {
       user: user.toSafeObject()
     });
   } catch (error) {
+    console.error("Login error:", error);
+
     if (error.message === "JWT_SECRET is not set") {
       return res.status(500).json({ message: "Server configuration error" });
     }
