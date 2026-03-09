@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   MapPin,
@@ -14,9 +14,16 @@ import {
   PauseCircle,
   PlayCircle,
   RefreshCw,
+  Share2,
+  Copy,
 } from "lucide-react";
+import { QRCodeSVG as QRCodeReact } from "qrcode.react";
+import { io } from "socket.io-client";
 import { usePoll } from "../context/PollContext";
 import { useAuth } from "../context/AuthContext";
+import { API_BASE_URL } from "../utils/api";
+import MapComponent from "../components/MapComponent";
+import ChartComponent from "../components/ChartComponent";
 
 const formatVoteTime = (timestamp) =>
   new Date(timestamp).toLocaleString(undefined, {
@@ -38,34 +45,102 @@ export default function ResultsDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [togglingStatus, setTogglingStatus] = useState(false);
+  const [chartType, setChartType] = useState("doughnut");
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const loadResults = async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
+  const socketRef = useRef(null);
 
-    try {
-      const data = await getResults(pollId);
-      setResultsData(data);
-      setError("");
-    } catch (loadError) {
-      setError(loadError.message || "Failed to load results");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  const loadResults = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
+      try {
+        const data = await getResults(pollId);
+        setResultsData(data);
+        setError("");
+      } catch (loadError) {
+        setError(loadError.message || "Failed to load results");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [pollId, getResults]
+  );
+
+  // Initial load + polling fallback
   useEffect(() => {
     loadResults();
 
     const pollInterval = window.setInterval(() => {
       loadResults(true);
-    }, 10000);
+    }, 15000);
 
     return () => window.clearInterval(pollInterval);
+  }, [pollId]);
+
+  // Socket.IO real-time updates
+  useEffect(() => {
+    const socket = io(API_BASE_URL, {
+      transports: ["websocket", "polling"],
+    });
+
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      console.log("Socket connected for real-time vote updates");
+    });
+
+    socket.on(`vote-${pollId}`, (newVote) => {
+      setResultsData((prev) => {
+        if (!prev) return prev;
+
+        const updatedVotes = [...prev.votes, newVote];
+        const updatedTotalVotes = updatedVotes.length;
+
+        // Recalculate results
+        const voteCounts = {};
+        updatedVotes.forEach((v) => {
+          voteCounts[v.option] = (voteCounts[v.option] || 0) + 1;
+        });
+
+        const updatedResults = prev.poll.options.map((option) => ({
+          id: option.toString(),
+          option,
+          votes: voteCounts[option] || 0,
+          percentage:
+            updatedTotalVotes > 0
+              ? Math.round(
+                  ((voteCounts[option] || 0) / updatedTotalVotes) * 100
+                )
+              : 0,
+          locations: updatedVotes
+            .filter(
+              (vote) =>
+                vote.option === option &&
+                Number.isFinite(vote.latitude) &&
+                Number.isFinite(vote.longitude)
+            )
+            .map((vote) => ({ lat: vote.latitude, lng: vote.longitude })),
+        }));
+
+        return {
+          ...prev,
+          votes: updatedVotes,
+          totalVotes: updatedTotalVotes,
+          results: updatedResults,
+        };
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, [pollId]);
 
   const poll = resultsData?.poll;
@@ -78,18 +153,18 @@ export default function ResultsDashboard() {
       votes
         .filter(
           (vote) =>
-            Number.isFinite(vote.latitude) && Number.isFinite(vote.longitude),
+            Number.isFinite(vote.latitude) && Number.isFinite(vote.longitude)
         )
-        .map((vote) => `${vote.latitude.toFixed(3)},${vote.longitude.toFixed(3)}`),
+        .map(
+          (vote) =>
+            `${vote.latitude.toFixed(3)},${vote.longitude.toFixed(3)}`
+        )
     );
     return uniqueLocationPairs.size;
   }, [votes]);
 
   const leadingOption = useMemo(() => {
-    if (!voteResults.length) {
-      return null;
-    }
-
+    if (!voteResults.length) return null;
     return [...voteResults].sort((a, b) => b.votes - a.votes)[0];
   }, [voteResults]);
 
@@ -98,20 +173,21 @@ export default function ResultsDashboard() {
       .sort(
         (first, second) =>
           new Date(second.timestamp).getTime() -
-          new Date(first.timestamp).getTime(),
+          new Date(first.timestamp).getTime()
       )
       .slice(0, 8);
   }, [votes]);
 
   const isOwner = isAuthenticated && poll?.userId === user?.id;
 
+  const pollUrl = poll
+    ? `${window.location.origin}/vote/${poll._id}`
+    : "";
+
   const handleTogglePollStatus = async () => {
-    if (!poll || !isOwner) {
-      return;
-    }
+    if (!poll || !isOwner) return;
 
     setTogglingStatus(true);
-
     try {
       if (poll.isActive) {
         await closePoll(poll._id);
@@ -126,10 +202,21 @@ export default function ResultsDashboard() {
     }
   };
 
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(pollUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-600">Loading results...</p>
+        <div className="text-center">
+          <div className="w-12 h-12 bg-purple-600 rounded-xl flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <span className="text-white font-bold text-lg">G</span>
+          </div>
+          <p className="text-gray-600">Loading results...</p>
+        </div>
       </div>
     );
   }
@@ -181,7 +268,7 @@ export default function ResultsDashboard() {
         </div>
       </header>
 
-      <div className="fixed left-0 top-20 h-full w-16 bg-white border-r border-gray-200 flex flex-col items-center py-6 space-y-6">
+      <div className="fixed left-0 top-20 h-full w-16 bg-white border-r border-gray-200 flex flex-col items-center py-6 space-y-6 z-10">
         <button
           onClick={() => navigate("/")}
           className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center"
@@ -201,6 +288,7 @@ export default function ResultsDashboard() {
 
       <div className="ml-16 px-6 py-8">
         <div className="max-w-7xl mx-auto">
+          {/* Header section */}
           <div className="flex items-start justify-between gap-4 mb-8">
             <div>
               <button
@@ -221,14 +309,21 @@ export default function ResultsDashboard() {
                       : "bg-gray-100 text-gray-600"
                   }`}
                 >
-                  {poll.isActive ? "Live" : "Closed"}
+                  {poll.isActive ? "● Live" : "Closed"}
                 </span>
               </div>
               {poll.description && (
                 <p className="text-gray-600 max-w-3xl">{poll.description}</p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => setShowSharePanel(!showSharePanel)}
+                className="flex items-center space-x-2 bg-white border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Share</span>
+              </button>
               <button
                 onClick={() => loadResults(true)}
                 disabled={refreshing}
@@ -256,12 +351,42 @@ export default function ResultsDashboard() {
             </div>
           </div>
 
+          {/* Share Panel */}
+          {showSharePanel && (
+            <div className="mb-8 bg-white border border-gray-200 rounded-2xl p-6 flex flex-col md:flex-row items-center gap-6">
+              <div className="bg-white p-3 rounded-xl border shadow-sm">
+                <QRCodeReact value={pollUrl} size={140} level="M" />
+              </div>
+              <div className="flex-1 space-y-3">
+                <h3 className="font-semibold text-gray-900">
+                  Share this poll
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Scan the QR code or copy the link below to invite voters.
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-sm bg-gray-50 px-3 py-2 rounded-lg border truncate">
+                    {pollUrl}
+                  </code>
+                  <button
+                    onClick={handleCopyUrl}
+                    className="flex items-center gap-1 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                  >
+                    <Copy className="w-4 h-4" />
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4">
               <p className="text-red-700 text-sm">{error}</p>
             </div>
           )}
 
+          {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <div className="bg-white p-6 rounded-2xl border border-gray-200">
               <div className="flex items-center justify-between">
@@ -281,7 +406,7 @@ export default function ResultsDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-gray-500 text-sm">Leading Option</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-2xl font-bold text-gray-900 truncate">
                     {leadingOption?.option || "-"}
                   </p>
                 </div>
@@ -315,10 +440,54 @@ export default function ResultsDashboard() {
             </div>
           </div>
 
+          {/* Map + Chart Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            {/* Map */}
+            <div className="bg-white p-6 rounded-2xl border border-gray-200">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">
+                📍 Vote Locations
+              </h3>
+              <MapComponent votes={votes} options={poll.options} />
+            </div>
+
+            {/* Chart */}
+            <div className="bg-white p-6 rounded-2xl border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-gray-900">
+                  📊 Vote Distribution
+                </h3>
+                <div className="flex bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setChartType("doughnut")}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                      chartType === "doughnut"
+                        ? "bg-white text-purple-600 shadow-sm"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    Doughnut
+                  </button>
+                  <button
+                    onClick={() => setChartType("bar")}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                      chartType === "bar"
+                        ? "bg-white text-purple-600 shadow-sm"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    Bar
+                  </button>
+                </div>
+              </div>
+              <ChartComponent voteResults={voteResults} chartType={chartType} />
+            </div>
+          </div>
+
+          {/* Vote Distribution Bars + Recent Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="bg-white p-8 rounded-2xl border border-gray-200">
               <h3 className="text-xl font-bold text-gray-900 mb-6">
-                Vote Distribution
+                Vote Breakdown
               </h3>
               {voteResults.length === 0 ? (
                 <p className="text-gray-600">No options available.</p>
@@ -336,7 +505,7 @@ export default function ResultsDashboard() {
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-3">
                         <div
-                          className="bg-purple-500 h-3 rounded-full"
+                          className="bg-purple-500 h-3 rounded-full transition-all duration-500"
                           style={{ width: `${result.percentage}%` }}
                         />
                       </div>
