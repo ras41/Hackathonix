@@ -17,12 +17,21 @@ export async function apiRequest(path, options = {}) {
     finalHeaders["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: finalHeaders,
-    body:
-      body === undefined ? undefined : isFormData ? body : JSON.stringify(body)
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: finalHeaders,
+      body:
+        body === undefined ? undefined : isFormData ? body : JSON.stringify(body)
+    });
+  } catch (networkError) {
+    const err = new Error(
+      `Network error: ${networkError.message} (check that your backend is running at ${API_BASE_URL})`,
+    );
+    err.status = 0;
+    throw err;
+  }
 
   const rawText = await response.text();
   let data = null;
