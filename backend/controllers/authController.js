@@ -2,7 +2,13 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-const getJwtSecret = () => process.env.JWT_SECRET || "change-me-in-production";
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is not set");
+  }
+  return secret;
+};
 const isDbUnavailable = (error) =>
   error?.name === "MongooseServerSelectionError" ||
   error?.message?.includes("buffering timed out");
@@ -54,6 +60,10 @@ export const register = async (req, res) => {
       user: user.toSafeObject()
     });
   } catch (error) {
+    if (error.message === "JWT_SECRET is not set") {
+      return res.status(500).json({ message: "Server configuration error" });
+    }
+
     if (isDbUnavailable(error)) {
       return res.status(503).json({ message: "Database unavailable" });
     }
@@ -98,6 +108,10 @@ export const login = async (req, res) => {
       user: user.toSafeObject()
     });
   } catch (error) {
+    if (error.message === "JWT_SECRET is not set") {
+      return res.status(500).json({ message: "Server configuration error" });
+    }
+
     if (isDbUnavailable(error)) {
       return res.status(503).json({ message: "Database unavailable" });
     }
