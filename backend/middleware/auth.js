@@ -1,7 +1,13 @@
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 
-const getJwtSecret = () => process.env.JWT_SECRET || "change-me-in-production";
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is not set");
+  }
+  return secret;
+};
 
 const extractBearerToken = (authorizationHeader = "") => {
   if (!authorizationHeader.startsWith("Bearer ")) {
@@ -37,6 +43,10 @@ export const requireAuth = async (req, res, next) => {
 
     next();
   } catch (error) {
+    if (error.message === "JWT_SECRET is not set") {
+      return res.status(500).json({ message: "Server configuration error" });
+    }
+
     if (error.name === "TokenExpiredError") {
       return res.status(401).json({ message: "Token expired" });
     }
